@@ -14,9 +14,21 @@ CHARS_PER_PAGE_ESTIMATE = 3000
 
 
 def get_splitter() -> RecursiveCharacterTextSplitter:
-    return RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-        chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP
-    )
+    """Tiktoken-based splitter; char-based fallback when offline.
+
+    The spec is 1000 tokens / 200 overlap. tiktoken downloads its BPE
+    table on first use, so environments without network fall back to an
+    approximately equivalent character splitter (4000 chars / 800 overlap)
+    instead of failing.
+    """
+    try:
+        return RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+            chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP
+        )
+    except Exception:
+        return RecursiveCharacterTextSplitter(
+            chunk_size=4000, chunk_overlap=800
+        )
 
 
 def chunk_text(text: str, metadata: dict) -> list[dict]:
