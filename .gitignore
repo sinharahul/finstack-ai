@@ -11,3 +11,4 @@ frontend/out/
 *.log
 .DS_Store
 feedback.jsonl
+frontend/tsconfig.tsbuildinfo
