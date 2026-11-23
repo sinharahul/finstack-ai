@@ -85,10 +85,13 @@ whole loop — ask, stream, cite, memo, eval — works offline.
 
 `deploy.sh` reads the repo URL from git for the Amplify frontend and takes
 the stack name/region from `STACK_NAME`/`AWS_REGION` (defaults
-`finstack-ai`/`us-east-1`). Then point `NEXT_PUBLIC_API_URL` at the
-deployed API. Any ticker you ask about is ingested on first use (see
-below), or pre-load filings by uploading to the S3 `raw/` prefix, which
-triggers the ingestion Lambda.
+`finstack-ai`/`us-east-1`). Set `AMPLIFY_GITHUB_TOKEN` (a PAT with repo
+scope) before deploying to link the repo; then create the `main` branch
+in Amplify (or via `aws amplify create-branch`) and set the app's
+`NEXT_PUBLIC_API_URL` environment variable to the deployed API endpoint
+— pushes to `main` auto-rebuild the hosted UI. Any ticker you ask about
+is ingested on first use (see below), or pre-load filings by uploading
+to the S3 `raw/` prefix, which triggers the ingestion Lambda.
 
 ## Live mode (any ticker, realtime pipeline)
 
