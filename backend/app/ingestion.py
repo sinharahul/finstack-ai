@@ -90,3 +90,19 @@ def ingest_all(settings: Settings, tickers: list[str] | None = None) -> list[dic
         ingest_ticker(t, settings, store=store, meta=meta)
         for t in (tickers or TICKERS)
     ]
+
+
+def ensure_ticker_ingested(ticker: str, settings: Settings,
+                           store=None) -> tuple:
+    """Ingest the latest 10-K for ticker unless it is already indexed.
+
+    This is the realtime path: any ticker a user enters gets pulled
+    through EDGAR -> chunk -> embed -> index on first use. Returns
+    (store, result) where result is the ingest_ticker report, or None
+    when the ticker was already present. Raises ValueError for tickers
+    with no SEC 10-K filing.
+    """
+    store = store if store is not None else get_store(settings)
+    if store.has_ticker(ticker):
+        return store, None
+    return store, ingest_ticker(ticker, settings, store=store)

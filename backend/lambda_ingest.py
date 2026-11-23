@@ -24,11 +24,22 @@ def lambda_handler(event, context):
         key = record["s3"]["object"]["key"]
         parts = key.split("/")
         ticker = parts[1].upper() if len(parts) > 1 else "UNKNOWN"
+        # Key shape raw/<TICKER>/<filing-date>.txt; the date feeds the
+        # metadata table's RANGE key and citation years.
+        filing_date = (
+            parts[2].rsplit(".", 1)[0] if len(parts) > 2 else "unknown"
+        )
         obj = boto_session(settings).client("s3").get_object(
             Bucket=bucket, Key=key
         )
         text = obj["Body"].read().decode("utf-8", errors="ignore")
-        base_meta = {"ticker": ticker, "filing": "10-K", "s3_key": key}
+        base_meta = {
+            "ticker": ticker,
+            "filing": "10-K",
+            "filing_date": filing_date,
+            "filing_year": filing_date[:4],
+            "s3_key": key,
+        }
         chunks = chunking.chunk_text(text, base_meta)
         vecs = embeddings.embed_texts([c["text"] for c in chunks], settings)
         store.add(

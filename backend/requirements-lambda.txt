@@ -1,0 +1,24 @@
+# Lambda runtime subset (local dev + tests use ../requirements.txt).
+#
+# NOTE the filename: it is deliberately NOT requirements.txt, so that
+# `sam build` does not auto-install host-platform wheels. scripts/deploy.sh
+# installs this manifest with a platform-targeted pip (manylinux x86_64,
+# CPython 3.12) into the SAM build output instead, which needs no Docker.
+# deploy.sh then strips boto3/botocore (already in the Lambda runtime),
+# sqlalchemy (only langchain's SQL chains), grpc + google protobufs (only
+# opensearchpy's async transport), and PIL (only fpdf2 image embedding)
+# to stay under 250 MB. See the strip block in scripts/deploy.sh.
+# Pinned to the 0.x API (see ../requirements.txt): langchain 1.x removed
+# langchain.chains, which app/rag.py builds on.
+langchain>=0.3,<1
+langchain-aws>=0.2,<0.3
+langchain-core>=0.3,<0.4
+langchain-text-splitters>=0.3,<0.4
+langsmith>=0.2
+langfuse>=3
+tiktoken>=0.7
+requests>=2.31
+fpdf2>=2.7
+opensearch-py>=2.7
+requests-aws4auth>=1.2
+boto3>=1.34

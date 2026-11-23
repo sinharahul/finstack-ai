@@ -8,10 +8,16 @@ import {
   type Source,
 } from "../lib/api";
 
-const TICKERS = ["AAPL", "MSFT", "NVDA"];
+const PRESET_TICKERS = ["AAPL", "MSFT", "NVDA"];
+
+function normalizeTicker(raw: string): string | null {
+  const t = raw.trim().toUpperCase();
+  return /^[A-Z0-9.\-]{1,10}$/.test(t) ? t : null;
+}
 
 export default function Home() {
   const [ticker, setTicker] = useState("AAPL");
+  const [customTicker, setCustomTicker] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -86,7 +92,7 @@ export default function Home() {
       <aside className="w-48 border-r p-4">
         <h1 className="font-bold text-lg mb-4">FinStack AI</h1>
         <p className="text-xs text-gray-500 mb-2">Ticker</p>
-        {TICKERS.map((t) => (
+        {PRESET_TICKERS.map((t) => (
           <button
             key={t}
             onClick={() => setTicker(t)}
@@ -97,6 +103,46 @@ export default function Home() {
             {t}
           </button>
         ))}
+        <p className="text-xs text-gray-500 mb-1 mt-3">Or any ticker</p>
+        <div className="flex gap-1">
+          <input
+            value={customTicker}
+            onChange={(e) => setCustomTicker(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const t = normalizeTicker(customTicker);
+                if (t) {
+                  setTicker(t);
+                  setCustomTicker("");
+                }
+              }
+            }}
+            placeholder="e.g. TSLA"
+            className="flex-1 min-w-0 border rounded px-2 py-2 uppercase"
+          />
+          <button
+            onClick={() => {
+              const t = normalizeTicker(customTicker);
+              if (t) {
+                setTicker(t);
+                setCustomTicker("");
+              }
+            }}
+            className="bg-blue-600 text-white px-2 py-2 rounded"
+          >
+            Go
+          </button>
+        </div>
+        {!PRESET_TICKERS.includes(ticker) && (
+          <p className="text-xs mt-2">
+            Active ticker:{" "}
+            <span className="font-mono font-bold">{ticker}</span>
+          </p>
+        )}
+        <p className="text-xs text-gray-500 mt-2">
+          First question on a new ticker pulls its 10-K through the
+          pipeline — it can take a minute.
+        </p>
         <button
           onClick={downloadMemo}
           className="mt-6 w-full bg-green-600 text-white px-3 py-2 rounded"

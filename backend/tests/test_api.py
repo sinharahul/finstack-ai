@@ -22,6 +22,13 @@ def test_health():
     assert _client().get("/health").json()["mode"] == "demo"
 
 
+def test_root_returns_service_info():
+    data = _client().get("/").json()
+    assert data["status"] == "ok"
+    assert data["mode"] == "demo"
+    assert "POST /ask" in data["endpoints"]
+
+
 def test_ask_returns_answer_sources_latency_cost():
     resp = _client().post("/ask", json={
         "query": "What are Apple's risk factors?",

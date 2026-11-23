@@ -1,11 +1,12 @@
 """RAG agent: history-aware retrieval + LCEL chain over 10-K chunks.
 
 Real path: LangChain history-aware retriever -> stuff-documents chain ->
-retrieval chain, running on Bedrock Claude 3.5 Sonnet. Demo path: the
-seeded in-memory store + canned answers, so the API works with no keys.
+retrieval chain, running on Bedrock Claude Sonnet (inference profile).
+Demo path: the seeded in-memory store + canned answers, so the API works
+with no keys.
 
-Cost figures are ESTIMATES from public Bedrock list prices (Claude 3.5
-Sonnet ~$3/1M input tokens, ~$15/1M output tokens, Titan Embed v2 ~$0.20/1M
+Cost figures are ESTIMATES from public Bedrock list prices (Claude Sonnet
+~$3/1M input tokens, ~$15/1M output tokens, Titan Embed v2 ~$0.20/1M
 tokens) and are labelled as such wherever surfaced.
 """
 
@@ -17,10 +18,11 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.retrievers import BaseRetriever
 from pydantic import ConfigDict
 
-from app import compliance, demo_store, embeddings
+from app import compliance, demo_store, embeddings, ingestion
 from app.config import Settings
 from app.llm import SYSTEM_PROMPT, get_chat_model
 from app.observability import traceable
+from app.vectorstore import get_store
 
 CLAUDE_INPUT_PER_1M = 3.00
 CLAUDE_OUTPUT_PER_1M = 15.00
@@ -126,6 +128,23 @@ def _to_messages(chat_history: list[dict]):
     return out
 
 
+def _unknown_ticker_result(ticker: str, question: str, started: float) -> dict:
+    """Graceful answer when EDGAR has no 10-K for the ticker."""
+    answer = compliance.apply_local_filter(
+        f"I couldn't find a 10-K filing for ticker {ticker.upper()} in SEC "
+        "EDGAR. Check the ticker symbol and try again."
+    )
+    return {
+        "answer": answer,
+        "sources": [],
+        "latency_ms": int((time.time() - started) * 1000),
+        "cost_usd": 0.0,
+        "input_tokens": estimate_tokens(question),
+        "output_tokens": estimate_tokens(answer),
+        "mode": "bedrock",
+    }
+
+
 @traceable
 def answer_question(question: str, ticker: str | None,
                     chat_history: list[dict], settings: Settings,
@@ -155,6 +174,17 @@ def answer_question(question: str, ticker: str | None,
             "output_tokens": estimate_tokens(answer),
             "mode": "demo",
         }
+    if store is None:
+        store = get_store(settings)
+    if ticker:
+        # Realtime path: pull any user-entered ticker through the
+        # EDGAR -> chunk -> embed -> index pipeline on first use.
+        try:
+            store, _ = ingestion.ensure_ticker_ingested(
+                ticker, settings, store
+            )
+        except ValueError:
+            return _unknown_ticker_result(ticker, question, started)
     retriever = StoreRetriever(store=store, settings=settings, ticker=ticker)
     chain = build_chain(settings, retriever)
     result = chain.invoke(

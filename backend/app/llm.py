@@ -1,4 +1,4 @@
-"""LLM access: Bedrock Claude 3.5 Sonnet (real) + demo fallback."""
+"""LLM access: Bedrock Claude Sonnet via inference profile (real) + demo."""
 
 from app.config import Settings
 

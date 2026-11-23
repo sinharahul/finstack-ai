@@ -12,3 +12,6 @@ frontend/out/
 .DS_Store
 feedback.jsonl
 frontend/tsconfig.tsbuildinfo
+.aws-sam/
+raw_filings/
+filing_meta.jsonl

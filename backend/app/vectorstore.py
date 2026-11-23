@@ -9,6 +9,21 @@ import math
 
 from app.config import Settings
 
+# Bedrock Titan Embed v2 default output size; the k-NN mapping must match.
+TITAN_EMBED_DIM = 1024
+
+
+def collection_host(collection: str, region: str) -> str:
+    """AOSS endpoint host for a collection id.
+
+    The stack passes the collection id (not the full endpoint), so build
+    the regional hostname. Values that already look like hostnames pass
+    through unchanged for local .env flexibility.
+    """
+    if "." in collection:
+        return collection
+    return f"{collection}.{region}.aoss.amazonaws.com"
+
 
 def _cosine(a: list[float], b: list[float]) -> float:
     dot = sum(x * y for x, y in zip(a, b))
@@ -38,6 +53,13 @@ class InMemoryVectorStore:
         scored.sort(key=lambda pair: pair[0], reverse=True)
         return [doc for _, doc in scored[:k]]
 
+    def has_ticker(self, ticker: str) -> bool:
+        """True when at least one indexed doc belongs to the ticker."""
+        wanted = ticker.upper()
+        return any(
+            doc["metadata"].get("ticker") == wanted for doc in self.docs
+        )
+
 
 class OpenSearchVectorStore:
     """Real OpenSearch Serverless vector store (SigV4, k-NN index)."""
@@ -50,20 +72,46 @@ class OpenSearchVectorStore:
 
         session = boto_session(settings)
         creds = session.get_credentials()
+        if creds is None:
+            raise RuntimeError(
+                "AWS credentials are required for live mode "
+                "(set them via ~/.aws/credentials or AWS_PROFILE)."
+            )
         auth = AWS4Auth(
             creds.access_key, creds.secret_key, settings.aws_region,
             "aoss", session_token=creds.token,
         )
         self.client = OpenSearch(
-            hosts=[{"host": settings.opensearch_collection, "port": 443}],
+            hosts=[{
+                "host": collection_host(
+                    settings.opensearch_collection, settings.aws_region
+                ),
+                "port": 443,
+            }],
             http_auth=auth,
             use_ssl=True,
             connection_class=RequestsHttpConnection,
         )
         self.index = settings.opensearch_index
 
+    def ensure_index(self) -> None:
+        """Create the k-NN index with the Titan-v2 mapping when missing."""
+        if self.client.indices.exists(index=self.index):
+            return
+        self.client.indices.create(index=self.index, body={
+            "settings": {"index.knn": True},
+            "mappings": {"properties": {
+                "text": {"type": "text"},
+                "embedding": {
+                    "type": "knn_vector", "dimension": TITAN_EMBED_DIM,
+                },
+                "ticker": {"type": "keyword"},
+            }},
+        })
+
     def add(self, texts: list[str], embeddings: list[list[float]],
             metadatas: list[dict]) -> None:
+        self.ensure_index()
         for text, emb, meta in zip(texts, embeddings, metadatas):
             self.client.index(
                 index=self.index,
@@ -90,6 +138,15 @@ class OpenSearchVectorStore:
             {"text": hit["_source"].get("text", ""), "metadata": hit["_source"]}
             for hit in resp["hits"]["hits"]
         ]
+
+    def has_ticker(self, ticker: str) -> bool:
+        """True when the index holds at least one doc for the ticker."""
+        self.ensure_index()
+        resp = self.client.count(
+            index=self.index,
+            body={"query": {"term": {"ticker": ticker.upper()}}},
+        )
+        return resp.get("count", 0) > 0
 
 
 def get_store(settings: Settings):

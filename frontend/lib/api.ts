@@ -26,7 +26,7 @@ export async function askStream(
   }) => void
 ): Promise<void> {
   const res = await fetch(
-    `${API}/ask/stream?query=${encodeURIComponent(query)}&ticker=${ticker}`
+    `${API}/ask/stream?query=${encodeURIComponent(query)}&ticker=${encodeURIComponent(ticker)}`
   );
   if (!res.ok || !res.body) throw new Error("Stream request failed");
   const reader = res.body.getReader();

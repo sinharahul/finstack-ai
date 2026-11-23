@@ -5,17 +5,30 @@ Description: FinStack AI - Equity Research Copilot (Lambda + API Gateway + Dynam
 Parameters:
   AmplifyRepo:
     Type: String
-    Default: https://github.com/OWNER/finstack-ai
-    Description: GitHub repo URL for the Amplify frontend (replace OWNER).
+    Default: ""
+    Description: GitHub repo URL for the Amplify frontend (used only when GitHubToken is also set).
+  GitHubToken:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: GitHub personal access token for Amplify. When empty, the Amplify app is created unconnected and you link the repo in the Amplify console.
+  EnableSearch:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Create the OpenSearch Serverless vector collection. It is the only resource with idle cost, so set to false (via scripts/stop.sh) to stop that cost while keeping the rest of the stack.
 
 Globals:
   Function:
     Runtime: python3.12
     Timeout: 120
     MemorySize: 1024
-    Environment:
-      Variables:
-        AWS_REGION: !Ref AWS::Region
+    # Note: AWS_REGION is intentionally not set here — Lambda injects it
+    # and rejects it as a reserved key. app.config reads it as usual.
+
+Conditions:
+  SearchEnabled: !Equals [!Ref EnableSearch, "true"]
+  GitHubConnected: !Not [!Equals [!Ref GitHubToken, ""]]
 
 Resources:
   # ---- API ----
@@ -26,8 +39,8 @@ Resources:
       Handler: lambda_api.lambda_handler
       Environment:
         Variables:
-          S3_BUCKET: !Ref RawFilingsBucket
-          OPENSEARCH_COLLECTION: !GetAtt FilingsCollection.Id
+          S3_BUCKET: !Sub "${AWS::StackName}-raw-filings-${AWS::AccountId}"
+          OPENSEARCH_COLLECTION: !If [SearchEnabled, !GetAtt FilingsCollection.Id, ""]
           CHAT_HISTORY_TABLE: !Ref ChatHistoryTable
           FILING_META_TABLE: !Ref FilingMetaTable
       Policies:
@@ -36,7 +49,31 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref FilingMetaTable
         - S3CrudPolicy:
-            BucketName: !Ref RawFilingsBucket
+            BucketName: !Sub "${AWS::StackName}-raw-filings-${AWS::AccountId}"
+        # Data-plane rights for OpenSearch Serverless (the other half of
+        # CollectionAccessPolicy): without this, SigV4 calls fail with 403.
+        # NOTE: IAM matches collection ARNs by ID, not name — the name form
+        # silently matches nothing. The wildcard keeps this valid when the
+        # search tier is stopped; the data policy still scopes the index.
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action: aoss:APIAccessAll
+              Resource:
+                - !Sub "arn:aws:aoss:${AWS::Region}:${AWS::AccountId}:collection/*"
+                - !Sub "arn:aws:aoss:${AWS::Region}:${AWS::AccountId}:index/*/*"
+        # Bedrock model invocation (Titan embeddings + Claude Sonnet answers
+        # via inference profile). Without this, InvokeModel fails fast.
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource:
+                # Region-wildcarded: `us.` inference profiles route across
+                # US regions, and IAM evaluates the destination model ARN.
+                - !Sub "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0"
+                - !Sub "arn:aws:bedrock:*::foundation-model/anthropic.*"
+                - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*"
       Events:
         AskApi:
           Type: HttpApi
@@ -50,16 +87,41 @@ Resources:
     Properties:
       CodeUri: ../backend/
       Handler: lambda_ingest.lambda_handler
+      Timeout: 900
       Environment:
         Variables:
-          S3_BUCKET: !Ref RawFilingsBucket
-          OPENSEARCH_COLLECTION: !GetAtt FilingsCollection.Id
+          S3_BUCKET: !Sub "${AWS::StackName}-raw-filings-${AWS::AccountId}"
+          OPENSEARCH_COLLECTION: !If [SearchEnabled, !GetAtt FilingsCollection.Id, ""]
           FILING_META_TABLE: !Ref FilingMetaTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref FilingMetaTable
         - S3CrudPolicy:
-            BucketName: !Ref RawFilingsBucket
+            BucketName: !Sub "${AWS::StackName}-raw-filings-${AWS::AccountId}"
+        # Data-plane rights for OpenSearch Serverless (the other half of
+        # CollectionAccessPolicy): without this, SigV4 calls fail with 403.
+        # NOTE: IAM matches collection ARNs by ID, not name — the name form
+        # silently matches nothing. The wildcard keeps this valid when the
+        # search tier is stopped; the data policy still scopes the index.
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action: aoss:APIAccessAll
+              Resource:
+                - !Sub "arn:aws:aoss:${AWS::Region}:${AWS::AccountId}:collection/*"
+                - !Sub "arn:aws:aoss:${AWS::Region}:${AWS::AccountId}:index/*/*"
+        # Bedrock model invocation (Titan embeddings + Claude Sonnet answers
+        # via inference profile). Without this, InvokeModel fails fast.
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource:
+                # Region-wildcarded: `us.` inference profiles route across
+                # US regions, and IAM evaluates the destination model ARN.
+                - !Sub "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0"
+                - !Sub "arn:aws:bedrock:*::foundation-model/anthropic.*"
+                - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*"
       Events:
         FilingUpload:
           Type: S3
@@ -75,6 +137,11 @@ Resources:
   # ---- Storage ----
   RawFilingsBucket:
     Type: AWS::S3::Bucket
+    Properties:
+      # Explicit name, repeated (not Ref'd) in env vars and policies below:
+      # any Ref from the functions/roles to this bucket closes a circular
+      # dependency with the S3 upload trigger on IngestFunction.
+      BucketName: !Sub "${AWS::StackName}-raw-filings-${AWS::AccountId}"
 
   ChatHistoryTable:
     Type: AWS::DynamoDB::Table
@@ -106,15 +173,28 @@ Resources:
         - AttributeName: filing_date
           KeyType: RANGE
 
-  # ---- OpenSearch Serverless ----
+  # ---- OpenSearch Serverless (idle-cost tier; toggled by EnableSearch) ----
   FilingsCollection:
     Type: AWS::OpenSearchServerless::Collection
+    Condition: SearchEnabled
+    DependsOn:
+      - CollectionEncryptionPolicy
+      - CollectionSecurityPolicy
     Properties:
       Name: finstack-filings
       Type: VECTORSEARCH
 
+  CollectionEncryptionPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Condition: SearchEnabled
+    Properties:
+      Name: finstack-encryption
+      Type: encryption
+      Policy: '{"Rules":[{"ResourceType":"collection","Resource":["collection/finstack-filings"]}],"AWSOwnedKey":true}'
+
   CollectionSecurityPolicy:
     Type: AWS::OpenSearchServerless::SecurityPolicy
+    Condition: SearchEnabled
     Properties:
       Name: finstack-network
       Type: network
@@ -122,17 +202,20 @@ Resources:
 
   CollectionAccessPolicy:
     Type: AWS::OpenSearchServerless::AccessPolicy
+    Condition: SearchEnabled
+    DependsOn: FilingsCollection
     Properties:
       Name: finstack-access
       Type: data
-      Policy: '[{"Rules":[{"ResourceType":"index","Resource":["index/finstack-filings/filings"],"Permission":["aoss:CreateIndex","aoss:DescribeIndex","aoss:ReadDocument","aoss:WriteDocument","aoss:UpdateIndex","aoss:DeleteIndex"]}],"Principal":["PLACEHOLDER-LAMBDA-ROLE-ARN"],"Description":"Lambda access"}]'
+      Policy: !Sub '[{"Rules":[{"ResourceType":"collection","Resource":["collection/finstack-filings"],"Permission":["aoss:CreateCollectionItems","aoss:DescribeCollectionItems"]},{"ResourceType":"index","Resource":["index/finstack-filings/filings"],"Permission":["aoss:CreateIndex","aoss:DescribeIndex","aoss:ReadDocument","aoss:WriteDocument","aoss:UpdateIndex","aoss:DeleteIndex"]}],"Principal":["${ApiFunctionRole.Arn}","${IngestFunctionRole.Arn}"],"Description":"Lambda access"}]'
 
   # ---- Frontend hosting ----
   FrontendApp:
     Type: AWS::Amplify::App
     Properties:
       Name: finstack-ai-frontend
-      Repository: !Ref AmplifyRepo
+      Repository: !If [GitHubConnected, !Ref AmplifyRepo, !Ref AWS::NoValue]
+      OauthToken: !If [GitHubConnected, !Ref GitHubToken, !Ref AWS::NoValue]
       BuildSpec: |
         version: 1
         frontend:
@@ -144,7 +227,7 @@ Resources:
               commands:
                 - npm run build
           artifacts:
-            baseDirectory: frontend/.next
+            baseDirectory: frontend/out
             files:
               - '**/*'
 

@@ -3,7 +3,7 @@
 An AI agent that answers natural-language questions about public stocks
 (AAPL, MSFT, NVDA) using **real SEC filings, with citations and compliance
 guardrails**. Built as a portfolio project for AI-focused internships:
-Bedrock Claude 3.5 Sonnet, LangChain (LCEL), LangSmith + Langfuse, and a
+Bedrock Claude Sonnet (inference profile), LangChain (LCEL), LangSmith + Langfuse, and a
 full AWS stack — with an offline demo mode so anyone can run it without
 credentials.
 
@@ -16,7 +16,7 @@ credentials.
 flowchart LR
     User[Next.js chat UI\nAmplify] --> API[API Gateway + Lambda\nFastAPI / RAG API]
     API --> RAG[LangChain RAG agent\n history-aware retriever]
-    RAG --> Bedrock[Bedrock Claude 3.5 Sonnet\n+ Guardrails]
+    RAG --> Bedrock[Bedrock Claude Sonnet\n+ Guardrails]
     RAG --> OSS[OpenSearch Serverless\nTitan Embed v2 vectors]
     S3[S3 raw 10-K filings] --> Ingest[Ingestion Lambda\nEDGAR -> chunk -> embed]
     Ingest --> OSS
@@ -39,7 +39,7 @@ flowchart LR
    in the metadata, so citations never pretend to be exact.
 2. **RAG agent** — a LangChain history-aware retriever rephrases follow-ups
    into standalone questions, then a stuff-documents LCEL chain answers
-   with Claude 3.5 Sonnet. The system prompt is compliance-first: cite
+   with Claude Sonnet. The system prompt is compliance-first: cite
    every claim as `[Ticker 10-K 2024 p.X]`, flag risk factors, never give
    financial advice.
 3. **Guardrails, two layers** — Bedrock Guardrails when
@@ -53,8 +53,10 @@ flowchart LR
    a local JSONL file.
 5. **API + UI** — FastAPI `POST /ask` returns
    `{answer, sources, latency_ms, cost}`, `GET /ask/stream` streams tokens
-   over SSE, `POST /memo` returns a PDF investment memo, and `GET /eval`
-   serves dashboard metrics. The Next.js UI has a ticker selector, a
+   over SSE, `POST /memo` returns a PDF investment memo, `POST /ingest`
+   pre-loads any ticker's 10-K, and `GET /eval` serves dashboard metrics.
+   The Next.js UI has a ticker selector plus free-form ticker entry (any
+   ticker is pulled through the pipeline in realtime on first use), a
    streaming chat with inline citations, a source-preview panel, per-query
    latency/cost display, and a memo button.
 
@@ -73,16 +75,41 @@ whole loop — ask, stream, cite, memo, eval — works offline.
 ## Real AWS path
 
 ```bash
-sam build --template infra/template.yaml
-sam deploy --guided   # Lambda, API Gateway, DynamoDB x2, S3,
-                      # OpenSearch Serverless collection, Amplify app
+./scripts/deploy.sh    # build + deploy the full stack (uses your AWS profile)
+./scripts/status.sh    # stack status, API endpoint, search tier
+./scripts/stop.sh      # drop the OpenSearch collection (stops idle cost)
+./scripts/start.sh     # bring the search tier back
+./scripts/logs.sh api  # tail the API Lambda logs
+./scripts/delete.sh --yes   # tear the whole stack down
 ```
 
-Then set the resource names in `.env` (see `.env.example`), run ingestion
-(`python -m app.ingestion` logic via `ingest_all`, or upload a filing to
-the S3 `raw/` prefix to trigger the ingestion Lambda), and point
-`NEXT_PUBLIC_API_URL` at the deployed API. Amplify serves the frontend;
-the template's `AmplifyRepo` parameter must be set to your repo URL.
+`deploy.sh` reads the repo URL from git for the Amplify frontend and takes
+the stack name/region from `STACK_NAME`/`AWS_REGION` (defaults
+`finstack-ai`/`us-east-1`). Then point `NEXT_PUBLIC_API_URL` at the
+deployed API. Any ticker you ask about is ingested on first use (see
+below), or pre-load filings by uploading to the S3 `raw/` prefix, which
+triggers the ingestion Lambda.
+
+## Live mode (any ticker, realtime pipeline)
+
+Live mode answers from real SEC filings via Bedrock. Prerequisites: AWS
+credentials (`~/.aws/credentials` or `AWS_PROFILE`), Bedrock model access
+for Claude Sonnet + Titan Embed v2 (one-time opt-in in the Bedrock
+console), and a deployed stack (or at least an OpenSearch collection)
+whose names are set in `.env` — see `.env.example`.
+
+```bash
+cd backend && PYTHONPATH=. uvicorn app.main:app --reload   # no DEMO=1
+```
+
+Any ticker can be entered in the UI (or `POST /ask` with any `ticker`):
+the first question pulls that company's latest 10-K from EDGAR and runs
+it through chunk → Titan embed → OpenSearch indexing in realtime, then
+answers with citations. That first question can take a minute or two on
+a full 10-K; later questions are fast. `POST /ingest {"ticker": "TSLA"}`
+pre-loads a ticker explicitly (404 when EDGAR has no 10-K for it), and
+unknown tickers in `/ask` get a graceful "not found" answer instead of
+an error.
 
 ## Evaluation — computed, never claimed
 
@@ -104,7 +131,7 @@ ticker) across the 20-item dataset.
 
 | Component | Basis | Rough estimate |
 | --- | --- | --- |
-| Bedrock Claude 3.5 Sonnet | ~$3 / 1M input tokens, ~$15 / 1M output | ~$0.01–0.05 per query |
+| Bedrock Claude Sonnet 4.5 (inference profile) | ~$3 / 1M input tokens, ~$15 / 1M output | ~$0.01–0.05 per query |
 | Bedrock Titan Embed v2 | ~$0.20 / 1M tokens | pennies per 10-K |
 | OpenSearch Serverless | OCU-hours for a small vector collection | ~$25–90 / month if left running |
 | Lambda + API Gateway + DynamoDB + S3 | Pay-per-use, low traffic | a few $ / month |
@@ -116,12 +143,13 @@ component with a meaningful idle cost.
 ## Tests
 
 ```bash
-python -m pytest -q   # 19 tests, hermetic: mocked HTTP, no creds, no network
+python -m pytest -q   # 37 tests, hermetic: mocked HTTP, no creds, no network
 ```
 
 Covers chunking, the retriever, citation formatting, the compliance
-filter, all API endpoints, and eval metric computation. CI should run the
-same suite on push.
+filter, all API endpoints, realtime ingestion (arbitrary tickers,
+on-demand /ingest, unknown-ticker handling), and eval metric computation.
+CI should run the same suite on push.
 
 ## Opinions baked in (talk about these in interviews)
 
@@ -142,9 +170,10 @@ Loom demo: [link to be added]
 
 ```
 backend/app/        FastAPI + RAG + ingestion + eval + observability
-backend/tests/      19 hermetic pytest tests
+backend/tests/      37 hermetic pytest tests
 backend/lambda_*.py SAM Lambda entry points (API + S3 ingestion)
 datasets/           equity_qa_eval.json (20 Q&A pairs)
 frontend/           Next.js 14 + Tailwind chat UI
 infra/template.yaml SAM template for the full AWS stack
+scripts/            deploy/start/stop/delete/status/logs lifecycle scripts
 ```
