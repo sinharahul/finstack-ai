@@ -42,6 +42,7 @@ def test_ask_returns_answer_sources_latency_cost():
     assert data["sources"][0]["citation"].startswith("[AAPL")
     assert isinstance(data["latency_ms"], int)
     assert isinstance(data["cost"], float)
+    assert data["ingest_started"] is False
 
 
 def test_ask_stream_sse():

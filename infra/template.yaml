@@ -31,6 +31,22 @@ Conditions:
   GitHubConnected: !Not [!Equals [!Ref GitHubToken, ""]]
 
 Resources:
+  # Shared HTTP API with CORS for the Amplify-hosted UI (browser calls
+  # are cross-origin; without this the preflight fails and nothing works).
+  FinstackHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+
   # ---- API ----
   ApiFunction:
     Type: AWS::Serverless::Function
@@ -78,6 +94,7 @@ Resources:
         AskApi:
           Type: HttpApi
           Properties:
+            ApiId: !Ref FinstackHttpApi
             Path: /{proxy+}
             Method: ANY
 
@@ -246,6 +263,6 @@ Resources:
 
 Outputs:
   ApiEndpoint:
-    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Value: !Sub "https://${FinstackHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
   FrontendAppId:
     Value: !Ref FrontendApp

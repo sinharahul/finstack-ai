@@ -35,3 +35,9 @@ def test_lambda_unknown_path_404(monkeypatch):
     monkeypatch.setenv("DEMO", "1")
     resp = lambda_api.lambda_handler(_event("/nope"), None)
     assert resp["statusCode"] == 404
+
+
+def test_lambda_options_preflight_200(monkeypatch):
+    monkeypatch.setenv("DEMO", "1")
+    resp = lambda_api.lambda_handler(_event("/memo", method="OPTIONS"), None)
+    assert resp["statusCode"] == 200

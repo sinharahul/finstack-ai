@@ -53,6 +53,7 @@ export default function Home() {
               sources: meta.sources,
               latency_ms: meta.latency_ms,
               cost: meta.cost,
+              ingest_started: meta.ingest_started,
             };
             return copy;
           });
@@ -74,16 +75,27 @@ export default function Home() {
 
   async function downloadMemo() {
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
-    const blob = await generateMemo(
-      ticker,
-      lastUser?.content || "Summarize this company's latest 10-K."
-    );
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${ticker}-memo.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const blob = await generateMemo(
+        ticker,
+        lastUser?.content || "Summarize this company's latest 10-K."
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${ticker}-memo.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setMessages((m) => [
+        ...m,
+        {
+          role: "assistant",
+          content:
+            "Couldn't generate the memo — the API didn't respond. Is the stack deployed and reachable?",
+        },
+      ]);
+    }
   }
 
   return (
@@ -140,8 +152,8 @@ export default function Home() {
           </p>
         )}
         <p className="text-xs text-gray-500 mt-2">
-          First question on a new ticker pulls its 10-K through the
-          pipeline — it can take a minute.
+          First use of a new ticker starts a background load — ask again
+          in a few minutes.
         </p>
         <button
           onClick={downloadMemo}
@@ -167,6 +179,12 @@ export default function Home() {
                   : "bg-gray-100"
               }`}
             >
+              {m.ingest_started && (
+                <p className="text-xs font-semibold text-amber-700 bg-amber-100 rounded px-2 py-1 mb-1">
+                  Loading — this ticker&apos;s 10-K is being ingested in the
+                  background. Ask again in a few minutes.
+                </p>
+              )}
               <p className="whitespace-pre-wrap">{m.content}</p>
               {m.sources && (
                 <p className="text-xs text-gray-500 mt-2">

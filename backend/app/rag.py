@@ -128,6 +128,27 @@ def _to_messages(chat_history: list[dict]):
     return out
 
 
+def _loading_result(ticker: str, question: str, started: float,
+                    info: dict) -> dict:
+    """Warning answer when a background ingest was just triggered."""
+    answer = compliance.apply_local_filter(
+        f"{info['company']} ({ticker.upper()}) isn't loaded yet — I've "
+        f"started pulling its latest 10-K (filed {info['filing_date']}) "
+        "through the pipeline. First load takes a few minutes; ask again "
+        "shortly."
+    )
+    return {
+        "answer": answer,
+        "sources": [],
+        "latency_ms": int((time.time() - started) * 1000),
+        "cost_usd": 0.0,
+        "input_tokens": estimate_tokens(question),
+        "output_tokens": estimate_tokens(answer),
+        "mode": "bedrock",
+        "ingest_started": True,
+    }
+
+
 def _unknown_ticker_result(ticker: str, question: str, started: float) -> dict:
     """Graceful answer when EDGAR has no 10-K for the ticker."""
     answer = compliance.apply_local_filter(
@@ -176,15 +197,14 @@ def answer_question(question: str, ticker: str | None,
         }
     if store is None:
         store = get_store(settings)
-    if ticker:
-        # Realtime path: pull any user-entered ticker through the
-        # EDGAR -> chunk -> embed -> index pipeline on first use.
+    if ticker and not store.has_ticker(ticker):
+        # First use: start a background load and warn instead of blocking,
+        # since a full 10-K takes minutes (past API timeouts).
         try:
-            store, _ = ingestion.ensure_ticker_ingested(
-                ticker, settings, store
-            )
+            started_info = ingestion.start_ticker_ingest(ticker, settings)
         except ValueError:
             return _unknown_ticker_result(ticker, question, started)
+        return _loading_result(ticker, question, started, started_info)
     retriever = StoreRetriever(store=store, settings=settings, ticker=ticker)
     chain = build_chain(settings, retriever)
     result = chain.invoke(

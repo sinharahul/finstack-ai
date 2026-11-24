@@ -92,17 +92,24 @@ def ingest_all(settings: Settings, tickers: list[str] | None = None) -> list[dic
     ]
 
 
-def ensure_ticker_ingested(ticker: str, settings: Settings,
-                           store=None) -> tuple:
-    """Ingest the latest 10-K for ticker unless it is already indexed.
+def start_ticker_ingest(ticker: str, settings: Settings) -> dict:
+    """Start a background load of the latest 10-K for ticker.
 
-    This is the realtime path: any ticker a user enters gets pulled
-    through EDGAR -> chunk -> embed -> index on first use. Returns
-    (store, result) where result is the ingest_ticker report, or None
-    when the ticker was already present. Raises ValueError for tickers
-    with no SEC 10-K filing.
+    Downloads the filing from EDGAR and stores it raw; on AWS the S3
+    upload triggers the ingestion Lambda, which chunks, embeds, and
+    indexes it within a few minutes. Returns immediately with the filing
+    details so callers can warn instead of blocking. Raises ValueError
+    for tickers with no SEC 10-K filing.
     """
-    store = store if store is not None else get_store(settings)
-    if store.has_ticker(ticker):
-        return store, None
-    return store, ingest_ticker(ticker, settings, store=store)
+    ticker = ticker.upper()
+    cik, company = edgar.resolve_ticker(ticker, settings)
+    filing = edgar.latest_10k(cik, settings)
+    text = edgar.download_filing_text(filing["url"], settings)
+    location = store_raw_filing(settings, ticker, text, filing["filing_date"])
+    return {
+        "ticker": ticker,
+        "company": company,
+        "filing_date": filing["filing_date"],
+        "raw_location": location,
+        "ingest_started": True,
+    }

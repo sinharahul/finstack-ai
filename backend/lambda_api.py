@@ -22,6 +22,11 @@ def lambda_handler(event, context):
     settings = Settings.from_env()
     path = event.get("rawPath") or event.get("path") or ""
     method = event.get("requestContext", {}).get("http", {}).get("method", "")
+    if method == "OPTIONS":
+        # CORS preflight: the greedy proxy routes these to us, so answer
+        # here. The gateway attaches the CORS headers itself, so this
+        # response must NOT repeat them (duplicates fail the check).
+        return {"statusCode": 200, "body": ""}
     if path in ("", "/"):
         return {"statusCode": 200, "body": json.dumps({
             "status": "ok",
@@ -46,6 +51,7 @@ def lambda_handler(event, context):
         return {"statusCode": 200, "body": json.dumps({
             "answer": result["answer"], "sources": result["sources"],
             "latency_ms": result["latency_ms"], "cost": result["cost_usd"],
+            "ingest_started": result.get("ingest_started", False),
         })}
     if path.endswith("/memo") and method == "POST":
         import base64

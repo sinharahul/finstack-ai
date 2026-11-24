@@ -11,6 +11,7 @@ export type ChatMessage = {
   sources?: Source[];
   latency_ms?: number;
   cost?: number;
+  ingest_started?: boolean;
 };
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -23,6 +24,7 @@ export async function askStream(
     sources: Source[];
     latency_ms: number;
     cost: number;
+    ingest_started: boolean;
   }) => void
 ): Promise<void> {
   const res = await fetch(

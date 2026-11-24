@@ -98,6 +98,7 @@ def create_app(settings: Settings | None = None,
             "cost_usd": result["cost_usd"],
             "input_tokens": result["input_tokens"],
             "output_tokens": result["output_tokens"],
+            "ingest_started": result.get("ingest_started", False),
         }
 
     @app.get("/ask/stream")
@@ -109,7 +110,7 @@ def create_app(settings: Settings | None = None,
             text = result["answer"]
             for i in range(0, len(text), 120):
                 yield f"data: {json.dumps({'token': text[i:i + 120]})}\n\n"
-            yield f"data: {json.dumps({'sources': result['sources'], 'latency_ms': result['latency_ms'], 'cost': result['cost_usd']})}\n\n"
+            yield f"data: {json.dumps({'sources': result['sources'], 'latency_ms': result['latency_ms'], 'cost': result['cost_usd'], 'ingest_started': result.get('ingest_started', False)})}\n\n"
 
         return StreamingResponse(gen(), media_type="text/event-stream")
 

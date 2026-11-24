@@ -105,14 +105,14 @@ whose names are set in `.env` — see `.env.example`.
 cd backend && PYTHONPATH=. uvicorn app.main:app --reload   # no DEMO=1
 ```
 
-Any ticker can be entered in the UI (or `POST /ask` with any `ticker`):
-the first question pulls that company's latest 10-K from EDGAR and runs
-it through chunk → Titan embed → OpenSearch indexing in realtime, then
-answers with citations. That first question can take a minute or two on
-a full 10-K; later questions are fast. `POST /ingest {"ticker": "TSLA"}`
-pre-loads a ticker explicitly (404 when EDGAR has no 10-K for it), and
-unknown tickers in `/ask` get a graceful "not found" answer instead of
-an error.
+Any ticker can be entered in the UI (or `POST /ask` with any `ticker`).
+The first question on a new ticker starts a background load of that
+company's latest 10-K from EDGAR (chunk → Titan embed → OpenSearch
+indexing) and immediately warns that loading takes a few minutes — the
+chat shows a loading notice; ask again shortly for the cited answer.
+`POST /ingest {"ticker": "TSLA"}` pre-loads a ticker explicitly (404
+when EDGAR has no 10-K for it), and unknown tickers in `/ask` get a
+graceful "not found" answer instead of an error.
 
 ## Evaluation — computed, never claimed
 
@@ -146,7 +146,7 @@ component with a meaningful idle cost.
 ## Tests
 
 ```bash
-python -m pytest -q   # 37 tests, hermetic: mocked HTTP, no creds, no network
+python -m pytest -q   # 39 tests, hermetic: mocked HTTP, no creds, no network
 ```
 
 Covers chunking, the retriever, citation formatting, the compliance
@@ -173,7 +173,7 @@ Loom demo: [link to be added]
 
 ```
 backend/app/        FastAPI + RAG + ingestion + eval + observability
-backend/tests/      37 hermetic pytest tests
+backend/tests/      39 hermetic pytest tests
 backend/lambda_*.py SAM Lambda entry points (API + S3 ingestion)
 datasets/           equity_qa_eval.json (20 Q&A pairs)
 frontend/           Next.js 14 + Tailwind chat UI
