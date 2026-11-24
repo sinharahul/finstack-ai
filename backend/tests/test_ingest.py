@@ -172,6 +172,31 @@ def test_opensearch_has_ticker_uses_count():
     assert seen["body"]["query"]["term"] == {"ticker": "AAPL"}
 
 
+def test_opensearch_search_filters_ticker_client_side():
+    import json
+
+    from app.vectorstore import OpenSearchVectorStore
+
+    seen = {}
+
+    class FakeClient:
+        def search(self, index, body):
+            seen["body"] = body
+            return {"hits": {"hits": [
+                {"_source": {"text": "a", "ticker": "AAPL"}},
+                {"_source": {"text": "b", "ticker": "TSLA"}},
+                {"_source": {"text": "c", "ticker": "AAPL"}},
+            ]}}
+
+    vs = OpenSearchVectorStore.__new__(OpenSearchVectorStore)
+    vs.client = FakeClient()
+    vs.index = "filings"
+    docs = vs.search([0.1, 0.2, 0.3, 0.4], k=2, ticker="AAPL")
+    assert [d["text"] for d in docs] == ["a", "c"]
+    assert "filter" not in json.dumps(seen["body"])
+    assert seen["body"]["size"] >= 2
+
+
 def test_collection_host_builds_endpoint():
     from app.vectorstore import collection_host
 

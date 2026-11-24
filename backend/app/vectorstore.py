@@ -120,24 +120,28 @@ class OpenSearchVectorStore:
 
     def search(self, query_embedding: list[float], k: int = 4,
                ticker: str | None = None) -> list[dict]:
+        # Overfetch and filter client-side when a ticker is given: pushing
+        # the term filter into the kNN query lets approximate HNSW
+        # traversal miss matching docs entirely (observed live: short
+        # queries returned zero hits while matches existed).
+        fetch = max(k * 5, 20) if ticker else k
         query: dict = {
-            "size": k,
+            "size": fetch,
             "query": {
-                "knn": {"embedding": {"vector": query_embedding, "k": k}}
+                "knn": {"embedding": {"vector": query_embedding, "k": fetch}}
             },
         }
-        if ticker:
-            query["query"] = {
-                "bool": {
-                    "must": query["query"],
-                    "filter": {"term": {"ticker": ticker.upper()}},
-                }
-            }
         resp = self.client.search(index=self.index, body=query)
-        return [
+        docs = [
             {"text": hit["_source"].get("text", ""), "metadata": hit["_source"]}
             for hit in resp["hits"]["hits"]
         ]
+        if ticker:
+            wanted = ticker.upper()
+            docs = [
+                d for d in docs if d["metadata"].get("ticker") == wanted
+            ]
+        return docs[:k]
 
     def has_ticker(self, ticker: str) -> bool:
         """True when the index holds at least one doc for the ticker."""

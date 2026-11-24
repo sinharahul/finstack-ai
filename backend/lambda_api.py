@@ -53,6 +53,27 @@ def lambda_handler(event, context):
             "latency_ms": result["latency_ms"], "cost": result["cost_usd"],
             "ingest_started": result.get("ingest_started", False),
         })}
+    if path.endswith("/ask/stream") and method == "GET":
+        params = event.get("queryStringParameters") or {}
+        result = rag.answer_question(
+            params.get("query", ""), params.get("ticker"),
+            [], settings, store=store,
+        )
+        # Buffered SSE: Lambda returns the whole event stream at once; the
+        # UI parses it incrementally either way (same shape as FastAPI).
+        text = result["answer"]
+        chunks = [
+            f"data: {json.dumps({'token': text[i:i + 120]})}\n\n"
+            for i in range(0, len(text), 120)
+        ]
+        chunks.append(
+            f"data: {json.dumps({'sources': result['sources'], 'latency_ms': result['latency_ms'], 'cost': result['cost_usd'], 'ingest_started': result.get('ingest_started', False)})}\n\n"
+        )
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "text/event-stream"},
+            "body": "".join(chunks),
+        }
     if path.endswith("/memo") and method == "POST":
         import base64
 

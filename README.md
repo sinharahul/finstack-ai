@@ -146,7 +146,7 @@ component with a meaningful idle cost.
 ## Tests
 
 ```bash
-python -m pytest -q   # 39 tests, hermetic: mocked HTTP, no creds, no network
+python -m pytest -q   # 41 tests, hermetic: mocked HTTP, no creds, no network
 ```
 
 Covers chunking, the retriever, citation formatting, the compliance
@@ -173,7 +173,7 @@ Loom demo: [link to be added]
 
 ```
 backend/app/        FastAPI + RAG + ingestion + eval + observability
-backend/tests/      39 hermetic pytest tests
+backend/tests/      41 hermetic pytest tests
 backend/lambda_*.py SAM Lambda entry points (API + S3 ingestion)
 datasets/           equity_qa_eval.json (20 Q&A pairs)
 frontend/           Next.js 14 + Tailwind chat UI

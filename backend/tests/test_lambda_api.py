@@ -41,3 +41,15 @@ def test_lambda_options_preflight_200(monkeypatch):
     monkeypatch.setenv("DEMO", "1")
     resp = lambda_api.lambda_handler(_event("/memo", method="OPTIONS"), None)
     assert resp["statusCode"] == 200
+
+
+def test_lambda_ask_stream_sse(monkeypatch):
+    monkeypatch.setenv("DEMO", "1")
+    event = _event("/ask/stream")
+    event["queryStringParameters"] = {"query": "NVDA growth?", "ticker": "NVDA"}
+    resp = lambda_api.lambda_handler(event, None)
+    assert resp["statusCode"] == 200
+    assert resp["headers"]["Content-Type"] == "text/event-stream"
+    assert '"token"' in resp["body"]
+    assert '"sources"' in resp["body"]
+    assert '"ingest_started": false' in resp["body"]
