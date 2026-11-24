@@ -134,7 +134,7 @@ ticker) across the 20-item dataset.
 
 | Component | Basis | Rough estimate |
 | --- | --- | --- |
-| Bedrock Claude Sonnet 4.5 (inference profile) | ~$3 / 1M input tokens, ~$15 / 1M output | ~$0.01–0.05 per query |
+| Bedrock Claude Sonnet 4-6 (inference profile) | ~$3 / 1M input tokens, ~$15 / 1M output | ~$0.01–0.05 per query |
 | Bedrock Titan Embed v2 | ~$0.20 / 1M tokens | pennies per 10-K |
 | OpenSearch Serverless | OCU-hours for a small vector collection | ~$25–90 / month if left running |
 | Lambda + API Gateway + DynamoDB + S3 | Pay-per-use, low traffic | a few $ / month |

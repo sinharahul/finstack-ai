@@ -9,7 +9,7 @@ class Settings:
     demo: bool = False
     aws_region: str = "us-east-1"
     aws_profile: str = ""
-    bedrock_model_id: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    bedrock_model_id: str = "us.anthropic.claude-sonnet-4-6"
     bedrock_embed_model_id: str = "amazon.titan-embed-text-v2:0"
     bedrock_guardrail_id: str = ""
     s3_bucket: str = ""
@@ -29,7 +29,7 @@ class Settings:
             aws_region=os.getenv("AWS_REGION", "us-east-1"),
             aws_profile=os.getenv("AWS_PROFILE", ""),
             bedrock_model_id=os.getenv(
-                "BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+                "BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6"
             ),
             bedrock_embed_model_id=os.getenv(
                 "BEDROCK_EMBED_MODEL_ID", "amazon.titan-embed-text-v2:0"
